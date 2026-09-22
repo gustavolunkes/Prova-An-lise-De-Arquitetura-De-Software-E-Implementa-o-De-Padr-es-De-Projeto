@@ -25,6 +25,11 @@
 - [**Parte 3** · Resumo de cada tópico](#parte-3--resumo-de-cada-tópico-revisão-relâmpago)
 - [🧭 Mapa de decisão — "que padrão é esse?"](#-mapa-de-decisão--que-padrão-é-esse)
 - [**Parte 4** · Exercícios resolvidos](#parte-4--exercícios-resolvidos)
+  - [🏭 Factory Method — Notificações](#-factory-method--sistema-de-notificações)
+  - [🧱 Builder — Pizza](#-builder--sistema-de-pizza)
+  - [🔌 Adapter — Pagamentos](#-adapter--sistema-de-pagamentos)
+  - [🌳 Composite — Arquivos e Pastas](#-composite--sistema-de-arquivos-e-pastas)
+  - [🎁 Decorator — Bebidas](#-decorator--sistema-de-bebidas)
 
 ---
 
@@ -862,9 +867,563 @@ Adapter, Composite e Decorator todos **guardam outro objeto por dentro**. O que 
 
 # Parte 4 — Exercícios resolvidos
 
-> Esta seção está reservada para os **exercícios de cada padrão** que você vai me enviar. Quando mandar, eu resolvo aqui — um bloco por padrão (**Decorator, Adapter, Builder, Factory, Composite**) — com o código completo, a resolução passo a passo e a explicação de qual padrão é e por quê.
->
-> Se algum exercício pedir para **completar** ou **identificar** o padrão de um código, eu resolvo já explicando **o sinal** que denuncia o padrão (usando o mapa de decisão acima), que é exatamente o formato da sua prova.
+> Os **5 exercícios resolvidos**, um por padrão, na mesma ordem da [Parte 2](#parte-2--padrões-de-projeto). Cada um traz a **solução refatorada completa em Java**, o **desafio adicional** e as **respostas das questões de reflexão**.
+
+## 🏭 Factory Method — Sistema de Notificações
+
+O `NotificationService` original dava `new EmailNotification()` **direto** — acoplado à classe concreta. Cada novo tipo exigiria um `if/else`. Com o **Factory Method**, a criação vira um método abstrato e **cada subclasse decide** qual notificação instanciar.
+
+### Solução
+
+```java
+// 1) Abstração do produto — toda notificação sabe enviar
+public interface Notification {
+    void send(String message);
+}
+```
+```java
+// 2) Produtos concretos
+public class EmailNotification implements Notification {
+    @Override
+    public void send(String message) {
+        System.out.println("Sending email: " + message);
+    }
+}
+public class SmsNotification implements Notification {
+    @Override
+    public void send(String message) {
+        System.out.println("Sending SMS: " + message);
+    }
+}
+public class PushNotification implements Notification {
+    @Override
+    public void send(String message) {
+        System.out.println("Sending push: " + message);
+    }
+}
+```
+```java
+// 3) Criador com o FACTORY METHOD (createNotification é abstrato)
+public abstract class NotificationService {
+
+    // ← Factory Method: a subclasse decide o produto concreto
+    protected abstract Notification createNotification();
+
+    // Lógica que USA o produto sem conhecer a classe concreta
+    public void sendNotification(String message) {
+        Notification notification = createNotification();
+        notification.send(message);
+    }
+}
+```
+```java
+// 4) Criadores concretos — cada um decide o que criar
+public class EmailNotificationService extends NotificationService {
+    @Override
+    protected Notification createNotification() { return new EmailNotification(); }
+}
+public class SmsNotificationService extends NotificationService {
+    @Override
+    protected Notification createNotification() { return new SmsNotification(); }
+}
+public class PushNotificationService extends NotificationService {
+    @Override
+    protected Notification createNotification() { return new PushNotification(); }
+}
+```
+```java
+public class Main {
+    public static void main(String[] args) {
+        NotificationService email = new EmailNotificationService();
+        NotificationService sms   = new SmsNotificationService();
+        NotificationService push  = new PushNotificationService();
+
+        email.sendNotification("Your order has been shipped!");
+        sms.sendNotification("Your order has been shipped!");
+        push.sendNotification("Your order has been shipped!");
+    }
+}
+```
+
+### Desafio adicional — WhatsApp
+Só **adicionamos** duas classes; nada existente é alterado (Open/Closed):
+
+```java
+public class WhatsAppNotification implements Notification {
+    @Override
+    public void send(String message) {
+        System.out.println("Sending WhatsApp: " + message);
+    }
+}
+public class WhatsAppNotificationService extends NotificationService {
+    @Override
+    protected Notification createNotification() { return new WhatsAppNotification(); }
+}
+// no Main:  new WhatsAppNotificationService().sendNotification("...");
+```
+
+### Respostas
+- **a)** O `NotificationService` instanciava `EmailNotification` **diretamente** (acoplado à classe concreta) e tenderia a virar um `if/else` gigante por tipo. O Factory Method remove o `new` direto e os condicionais: a decisão de qual classe criar sai da lógica de negócio.
+- **b)** Adicionar um tipo novo = **criar classes novas** (um produto + um criador), **sem tocar** no código existente. Respeita o **OCP**.
+- **c)** O Factory Method é o método **`createNotification()`** (abstrato em `NotificationService`), sobrescrito por cada criador concreto.
+- **d)** O polimorfismo age em dois pontos: `sendNotification()` chama `send()` na abstração `Notification` (cada notificação envia do seu jeito); e a hierarquia de criadores também é polimórfica (a mesma chamada gera produtos diferentes conforme o criador).
+- **e)** **Não.** Só ter a interface `Notification` + implementações é **abstração + polimorfismo**, não o padrão. O Factory Method exige **delegar a criação** a um método que as **subclasses** sobrescrevem para escolher a classe concreta. Sem essa delegação da criação, não há Factory Method (é o mesmo alerta do slide: *"isso ainda não é Factory Method"*).
+
+---
+
+## 🧱 Builder — Sistema de Pizza
+
+O construtor com 9 parâmetros (`new Pizza("Grande","Tradicional",true,true,...)`) é ilegível e fácil de errar (trocar dois `true` de lugar). O **Builder** monta a pizza **passo a passo**, configurando só os ingredientes desejados, e `build()` entrega o objeto pronto.
+
+### Solução
+
+```java
+public class Pizza {
+    private final String size;
+    private final String dough;
+    private final boolean sauce;
+    private final boolean cheese;
+    private final boolean pepperoni;
+    private final boolean bacon;
+    private final boolean chicken;
+    private final boolean stuffedCrust;
+    // adicionais doces (desafio adicional)
+    private final boolean chocolate;
+    private final boolean strawberry;
+    private final boolean condensedMilk;
+
+    // Só o Builder constrói a Pizza (mesmo pacote)
+    Pizza(PizzaBuilder b) {
+        this.size          = b.size;
+        this.dough         = b.dough;
+        this.sauce         = b.sauce;
+        this.cheese        = b.cheese;
+        this.pepperoni     = b.pepperoni;
+        this.bacon         = b.bacon;
+        this.chicken       = b.chicken;
+        this.stuffedCrust  = b.stuffedCrust;
+        this.chocolate     = b.chocolate;
+        this.strawberry    = b.strawberry;
+        this.condensedMilk = b.condensedMilk;
+    }
+
+    public String describe() {
+        StringBuilder sb = new StringBuilder("Pizza " + size + " (massa " + dough + ")");
+        if (sauce)         sb.append(" + molho");
+        if (cheese)        sb.append(" + queijo");
+        if (pepperoni)     sb.append(" + pepperoni");
+        if (bacon)         sb.append(" + bacon");
+        if (chicken)       sb.append(" + frango");
+        if (stuffedCrust)  sb.append(" + borda recheada");
+        if (chocolate)     sb.append(" + chocolate");
+        if (strawberry)    sb.append(" + morango");
+        if (condensedMilk) sb.append(" + leite condensado");
+        return sb.toString();
+    }
+}
+```
+```java
+public class PizzaBuilder {
+    // pacote-visível para a Pizza ler; com valores padrão
+    String size = "Média";
+    String dough = "Tradicional";
+    boolean sauce, cheese, pepperoni, bacon, chicken, stuffedCrust;
+    boolean chocolate, strawberry, condensedMilk;
+
+    public PizzaBuilder size(String size)   { this.size = size; return this; }
+    public PizzaBuilder dough(String dough) { this.dough = dough; return this; }
+    public PizzaBuilder sauce()             { this.sauce = true; return this; }
+    public PizzaBuilder cheese()            { this.cheese = true; return this; }
+    public PizzaBuilder pepperoni()         { this.pepperoni = true; return this; }
+    public PizzaBuilder bacon()             { this.bacon = true; return this; }
+    public PizzaBuilder chicken()           { this.chicken = true; return this; }
+    public PizzaBuilder stuffedCrust()      { this.stuffedCrust = true; return this; }
+    // adicionais doces (desafio adicional — só métodos novos)
+    public PizzaBuilder chocolate()         { this.chocolate = true; return this; }
+    public PizzaBuilder strawberry()        { this.strawberry = true; return this; }
+    public PizzaBuilder condensedMilk()     { this.condensedMilk = true; return this; }
+
+    public Pizza build() {          // ← entrega o objeto pronto
+        return new Pizza(this);
+    }
+}
+```
+```java
+public class Main {
+    public static void main(String[] args) {
+        Pizza calabresa = new PizzaBuilder()
+                .size("Grande").dough("Tradicional")
+                .sauce().cheese().pepperoni()
+                .build();
+
+        Pizza portuguesa = new PizzaBuilder()
+                .size("Grande").dough("Tradicional")
+                .sauce().cheese().bacon().chicken()
+                .build();
+
+        Pizza personalizada = new PizzaBuilder()
+                .size("Média").dough("Integral")
+                .sauce().cheese().bacon().stuffedCrust()
+                .build();
+
+        System.out.println(calabresa.describe());
+        System.out.println(portuguesa.describe());
+        System.out.println(personalizada.describe());
+    }
+}
+```
+
+### Desafio adicional — pizzas doces
+Os métodos `chocolate()`, `strawberry()`, `condensedMilk()` (e os atributos) já estão incluídos acima — foram **acrescentados** sem mexer nos métodos existentes:
+
+```java
+Pizza doce = new PizzaBuilder()
+        .size("Grande").dough("Tradicional")
+        .chocolate().strawberry().condensedMilk()
+        .build();
+System.out.println(doce.describe());
+// Pizza Grande (massa Tradicional) + chocolate + morango + leite condensado
+```
+
+### Respostas
+- **a)** O construtor com **muitos parâmetros** (*Long Parameter List*): ordem difícil de lembrar, ilegível e propenso a erro (trocar `boolean`s). O Builder resolve construindo passo a passo com nomes claros.
+- **b)** Legibilidade (você **lê o nome** de cada ingrediente), configura só o que quer (opcionais), ordem livre e **sem explosão de construtores** para cada combinação.
+- **c)** O Builder é a classe **`PizzaBuilder`** (métodos de configuração que retornam `this` + o `build()`).
+- **d)** O `build()` **finaliza** a construção e **devolve a `Pizza` pronta** a partir da configuração acumulada no builder.
+- **e)** Quando o objeto tem **muitos atributos** (vários opcionais), quando a **legibilidade** importa, ou quando a construção tem **etapas/validação**. Para poucos parâmetros obrigatórios, um construtor simples basta (**KISS/YAGNI** — não force Builder onde não precisa).
+
+---
+
+## 🔌 Adapter — Sistema de Pagamentos
+
+O sistema espera `pay(double amount)`, mas o serviço externo `ExternalPaymentGateway` (que **não pode ser alterado**) só oferece `makePayment(String currency, double value)`. O **Adapter** implementa a interface esperada e, por dentro, **traduz** a chamada para o método do serviço externo.
+
+### Solução
+
+```java
+// 1) Abstração esperada pelo sistema
+public interface PaymentProcessor {
+    void pay(double amount);
+}
+```
+```java
+// 2) Implementação própria já existente — agora cumpre a abstração
+public class CreditCardPayment implements PaymentProcessor {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Payment approved: $" + amount);
+    }
+}
+```
+```java
+// 3) Classe externa — NÃO é alterada (interface incompatível)
+public class ExternalPaymentGateway {
+    public void makePayment(String currency, double value) {
+        System.out.println("External payment approved: " + currency + " " + value);
+    }
+}
+```
+```java
+// 4) O ADAPTER: implementa PaymentProcessor e traduz para o método externo
+public class ExternalPaymentAdapter implements PaymentProcessor {
+    private final ExternalPaymentGateway gateway;
+    private final String currency;                 // moeda vive AQUI, não no OrderService
+
+    public ExternalPaymentAdapter(ExternalPaymentGateway gateway, String currency) {
+        this.gateway = gateway;
+        this.currency = currency;
+    }
+    public ExternalPaymentAdapter(ExternalPaymentGateway gateway) {
+        this(gateway, "BRL");                      // moeda padrão
+    }
+    @Override
+    public void pay(double amount) {               // método esperado...
+        gateway.makePayment(currency, amount);     // ...traduzido para o externo
+    }
+}
+```
+```java
+// 5) OrderService depende da ABSTRAÇÃO, não da classe concreta
+public class OrderService {
+    private final PaymentProcessor payment;
+    public OrderService(PaymentProcessor payment) {
+        this.payment = payment;
+    }
+    public void checkout(double amount) {
+        payment.pay(amount);
+    }
+}
+```
+```java
+public class Main {
+    public static void main(String[] args) {
+        // pagamento com cartão (implementação própria)
+        OrderService cartao = new OrderService(new CreditCardPayment());
+        cartao.checkout(150.00);
+
+        // pagamento pelo gateway externo, via Adapter
+        ExternalPaymentGateway gateway = new ExternalPaymentGateway();
+        OrderService externo = new OrderService(new ExternalPaymentAdapter(gateway));
+        externo.checkout(150.00);
+    }
+}
+```
+
+### Desafio adicional — múltiplas moedas (BRL, USD, EUR)
+A moeda fica **encapsulada no Adapter**; o `OrderService` nunca sabe dela:
+
+```java
+ExternalPaymentGateway gateway = new ExternalPaymentGateway();
+
+OrderService brl = new OrderService(new ExternalPaymentAdapter(gateway, "BRL"));
+OrderService usd = new OrderService(new ExternalPaymentAdapter(gateway, "USD"));
+OrderService eur = new OrderService(new ExternalPaymentAdapter(gateway, "EUR"));
+
+brl.checkout(150.00);   // External payment approved: BRL 150.0
+usd.checkout(150.00);   // External payment approved: USD 150.0
+eur.checkout(150.00);   // External payment approved: EUR 150.0
+```
+
+### Respostas
+- **a)** As interfaces eram **incompatíveis**: o sistema chama `pay(double)`, o externo exige `makePayment(String, double)`. Sem alterar o serviço externo nem espalhar seus detalhes pelo código, o Adapter faz a ponte.
+- **b)** A classe **`ExternalPaymentAdapter`** é o Adapter.
+- **c)** A esperada é `pay(double amount)` (simples); a fornecida é `makePayment(String currency, double value)` (**nome diferente** + parâmetro extra de **moeda**).
+- **d)** Porque a classe pertence a **outra equipe / é externa** e não deve/pode ser modificada; alterá-la aumentaria o acoplamento e você não controla esse código. O Adapter **isola** a integração num único ponto.
+- **e)** Quando a classe incompatível é **externa/legada/imutável**, quando **muitos clientes** já usam a interface esperada (mudar todos = caro e arriscado) e quando você quer **concentrar** os detalhes da integração em um só lugar.
+
+---
+
+## 🌳 Composite — Sistema de Arquivos e Pastas
+
+O código inicial tratava arquivo e pasta de formas **diferentes** (`getSize()` vs `getTotalSize()`) e a `Folder` só aceitava arquivos. O **Composite** cria uma abstração comum (`FileSystemComponent`) para que arquivo e pasta sejam tratados igual, e a pasta possa conter **arquivos e outras pastas** recursivamente.
+
+### Solução
+
+```java
+// Componente (abstração comum) — inclui display() do desafio adicional
+public interface FileSystemComponent {
+    String getName();
+    long getSize();
+    void display(String indent);
+}
+```
+```java
+// Folha — arquivo individual, sem filhos
+public class DocumentFile implements FileSystemComponent {
+    private final String name;
+    private final long size;   // em KB
+
+    public DocumentFile(String name, long size) {
+        this.name = name;
+        this.size = size;
+    }
+    @Override public String getName() { return name; }
+    @Override public long getSize()   { return size; }
+
+    @Override
+    public void display(String indent) {
+        System.out.println(indent + "- " + name + " (" + size + " KB)");
+    }
+}
+```
+```java
+import java.util.ArrayList;
+import java.util.List;
+
+// Composto — pasta que guarda uma coleção de FileSystemComponent
+public class Folder implements FileSystemComponent {
+    private final String name;
+    private final List<FileSystemComponent> children = new ArrayList<>();
+
+    public Folder(String name) { this.name = name; }
+
+    // add/remove SÓ na pasta (arquivo não tem filhos)
+    public void add(FileSystemComponent component)    { children.add(component); }
+    public void remove(FileSystemComponent component) { children.remove(component); }
+
+    @Override public String getName() { return name; }
+
+    @Override
+    public long getSize() {
+        long total = 0;
+        for (FileSystemComponent child : children) {
+            total += child.getSize();   // recursão via abstração — sem instanceof
+        }
+        return total;                   // pasta vazia → 0
+    }
+
+    @Override
+    public void display(String indent) {
+        System.out.println(indent + "[" + name + "] (" + getSize() + " KB)");
+        for (FileSystemComponent child : children) {
+            child.display(indent + "   ");
+        }
+    }
+}
+```
+```java
+public class Main {
+    public static void main(String[] args) {
+        // arquivo isolado
+        FileSystemComponent report = new DocumentFile("report.pdf", 500);
+
+        // pasta vazia
+        Folder vazia = new Folder("Vazia");
+
+        // hierarquia com 2 níveis de subpastas
+        DocumentFile photo  = new DocumentFile("photo.png", 1_500);
+        DocumentFile resume = new DocumentFile("resume.docx", 300);
+        DocumentFile song   = new DocumentFile("song.mp3", 4_000);
+
+        Folder music = new Folder("Music");
+        music.add(song);
+
+        Folder documents = new Folder("Documents");
+        documents.add(resume);
+        documents.add(music);      // subpasta dentro de subpasta
+
+        Folder root = new Folder("Root");
+        root.add(report);
+        root.add(photo);
+        root.add(documents);
+        root.add(vazia);
+
+        // consulta pela MESMA abstração, arquivo ou pasta
+        System.out.println(report.getName() + ": " + report.getSize() + " KB");   // 500
+        System.out.println(vazia.getName()  + ": " + vazia.getSize()  + " KB");   // 0
+        System.out.println(root.getName()   + ": " + root.getSize()   + " KB");   // 6300
+
+        // desafio adicional: exibir a hierarquia
+        System.out.println();
+        root.display("");
+    }
+}
+```
+
+### Desafio adicional — `display(String indent)`
+Já incluído acima (na interface, no arquivo e na pasta). Saída do `root.display("")`:
+
+```text
+[Root] (6300 KB)
+   - report.pdf (500 KB)
+   - photo.png (1500 KB)
+   [Documents] (4300 KB)
+      - resume.docx (300 KB)
+      [Music] (4000 KB)
+         - song.mp3 (4000 KB)
+   [Vazia] (0 KB)
+```
+
+### Respostas
+- **a)** O sistema tratava arquivo e pasta de formas diferentes e a `Folder` só aceitava arquivos (sem subpastas). O Composite unifica tudo sob `FileSystemComponent` e permite **pasta dentro de pasta** com tratamento uniforme.
+- **b)** **Componente** = `FileSystemComponent`; **folha** = `DocumentFile`; **composto** = `Folder`.
+- **c)** Arquivo e pasta implementam `getSize()`. O código chama `getSize()` na **abstração**, sem saber o tipo concreto; cada um responde do seu jeito (arquivo devolve o próprio tamanho; pasta soma os filhos). Zero `instanceof`.
+- **d)** A recursão está em `Folder.getSize()`: ela chama `getSize()` de cada filho; se o filho é outra `Folder`, ele mesmo soma seus filhos, **descendo a árvore** até as folhas. É isso que permite somar níveis arbitrários.
+- **e)** Deixar `add`/`remove` **só na `Folder`** é a variação **"segura"** do Composite:
+  - **Vantagem:** modela a realidade (arquivo não tem filhos) e não força a folha a implementar métodos sem sentido (não fere o **ISP**); é impossível adicionar filho a um arquivo.
+  - **Limitação:** o cliente precisa conhecer o tipo `Folder` para montar a árvore — o tratamento 100% uniforme vale para **operar** sobre a estrutura (`getSize`, `display`), não para **montá-la**. É o trade-off clássico: **transparência** (métodos na abstração, uniforme porém inseguro) × **segurança** (métodos só no composto).
+
+---
+
+## 🎁 Decorator — Sistema de Bebidas
+
+O código inicial criava **uma classe por combinação** (`CoffeeWithMilk`, `CoffeeWithMilkAndChocolate`...), duplicando preço e descrição. O **Decorator** "embrulha" a bebida com objetos que **acrescentam** descrição e custo, permitindo combinar adicionais em tempo de execução.
+
+### Solução
+
+```java
+// Componente (abstração)
+public interface Beverage {
+    String getDescription();
+    double getCost();
+}
+```
+```java
+// Componentes concretos (bebidas básicas)
+public class Coffee implements Beverage {
+    @Override public String getDescription() { return "Coffee"; }
+    @Override public double getCost()        { return 5.00; }
+}
+public class Tea implements Beverage {
+    @Override public String getDescription() { return "Tea"; }
+    @Override public double getCost()        { return 4.00; }
+}
+```
+```java
+// Decorador base: É uma Beverage e TEM uma Beverage (composição)
+public abstract class BeverageDecorator implements Beverage {
+    protected final Beverage beverage;          // a bebida envolvida
+    public BeverageDecorator(Beverage beverage) {
+        this.beverage = beverage;
+    }
+}
+```
+```java
+// Decoradores concretos — delegam e complementam
+public class MilkDecorator extends BeverageDecorator {
+    public MilkDecorator(Beverage beverage) { super(beverage); }
+    @Override public String getDescription() { return beverage.getDescription() + ", milk"; }
+    @Override public double getCost()        { return beverage.getCost() + 1.50; }
+}
+public class ChocolateDecorator extends BeverageDecorator {
+    public ChocolateDecorator(Beverage beverage) { super(beverage); }
+    @Override public String getDescription() { return beverage.getDescription() + ", chocolate"; }
+    @Override public double getCost()        { return beverage.getCost() + 2.00; }
+}
+public class WhippedCreamDecorator extends BeverageDecorator {
+    public WhippedCreamDecorator(Beverage beverage) { super(beverage); }
+    @Override public String getDescription() { return beverage.getDescription() + ", whipped cream"; }
+    @Override public double getCost()        { return beverage.getCost() + 2.50; }
+}
+```
+```java
+public class Main {
+    public static void main(String[] args) {
+        // sem adicionais
+        Beverage coffee = new Coffee();
+        print(coffee);                                    // Coffee -> R$ 5.0
+
+        // café com leite e chocolate  ->  8.50
+        Beverage coffeeMilkChoc = new ChocolateDecorator(new MilkDecorator(new Coffee()));
+        print(coffeeMilkChoc);                            // Coffee, milk, chocolate -> R$ 8.5
+
+        // chá com leite  ->  5.50
+        Beverage teaMilk = new MilkDecorator(new Tea());
+        print(teaMilk);                                   // Tea, milk -> R$ 5.5
+
+        // duas porções do MESMO adicional (leite duplo)
+        Beverage doubleMilk = new MilkDecorator(new MilkDecorator(new Coffee()));
+        print(doubleMilk);                                // Coffee, milk, milk -> R$ 8.0
+    }
+    static void print(Beverage b) {
+        System.out.println(b.getDescription() + " -> R$ " + b.getCost());
+    }
+}
+```
+
+### Desafio adicional — `CaramelDecorator` (R$ 1,00)
+Só **criamos uma classe nova**; nada existente muda. Envolvemos uma bebida que já tem adicionais:
+
+```java
+public class CaramelDecorator extends BeverageDecorator {
+    public CaramelDecorator(Beverage beverage) { super(beverage); }
+    @Override public String getDescription() { return beverage.getDescription() + ", caramel"; }
+    @Override public double getCost()        { return beverage.getCost() + 1.00; }
+}
+```
+```java
+Beverage base = new ChocolateDecorator(new MilkDecorator(new Coffee())); // 8.50
+Beverage withCaramel = new CaramelDecorator(base);                       // + 1.00
+System.out.println(withCaramel.getDescription() + " -> R$ " + withCaramel.getCost());
+// Coffee, milk, chocolate, caramel -> R$ 9.5
+```
+
+### Respostas
+- **a)** A **explosão de subclasses** (uma classe por combinação de café + adicionais), com preço e descrição **duplicados**. O Decorator combina adicionais em tempo de execução, sem uma classe por combinação.
+- **b)** **Componente** = `Beverage`; **componentes concretos** = `Coffee`, `Tea`; **decorador base** = `BeverageDecorator`; **decoradores concretos** = `MilkDecorator`, `ChocolateDecorator`, `WhippedCreamDecorator` (e `CaramelDecorator`).
+- **c)** Para que o objeto decorado seja tratado **exatamente igual** ao original pelo código cliente (mesma `Beverage`) e para que um decorador possa **envolver outro** (empilhar). O decorador **"é uma"** `Beverage` e **"tem uma"** `Beverage`.
+- **d)** O decorador **guarda uma referência** a outra `Beverage` (composição) e **delega** `getCost()`/`getDescription()` a ela, **somando** o seu próprio valor. Assim qualquer combinação vira **empilhamento de objetos**, dispensando subclasse por combinação.
+- **e)** Adicionar um adicional novo (Caramel) = **criar uma classe nova**, **sem modificar** `Coffee`, `Tea` nem os decoradores existentes. É o **OCP** na prática: aberto para extensão, fechado para modificação.
 
 ---
 
